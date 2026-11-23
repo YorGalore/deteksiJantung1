@@ -1,6 +1,6 @@
 # Rencana Analisis Final (Fold 19)
 
-**Status: DRAF v2 (2026-11-24), disusun Orang 3. Belum berlaku.**
+**Status: DRAF v3 (2026-11-24), disusun Orang 3. Belum berlaku.**
 
 Dokumen ini disimpan di `reports/rencana_analisis_fold19.md`. Dokumen menjadi final setelah:
 - disetujui tim (Bagian 16);
@@ -16,6 +16,11 @@ Perubahan dari DRAF v1 (2026-11-14):
 - SHAP M2/M4 (fold 19 utama, fold 18 sebagai cek stabilitas);
 - status M1_fold19;
 - prosedur disesuaikan dengan kode yang sudah diuji di fold 18.
+
+Perubahan dari DRAF v2 (2026-11-24):
+- entri decision log Orang 2 tentang `M1_fold19` ditambahkan, termasuk konfirmasi bahwa `signal_qc_full.csv` identik dengan `signal_qc.csv` (Bagian 14);
+- skrip Gambar 2 `src/evaluation/plot_forest.py`, sudah diuji di fold 18 (Bagian 12);
+- CSV pendukung di-commit secara eksplisit karena `.gitignore` mengabaikan `*.csv` (Bagian 13).
 
 ---
 
@@ -183,7 +188,7 @@ Rincian lengkap ada di decision log 2026-11-24 dan `reports/m0_rule.md`.
   - evaluasi: `reports/eval_fold19.md` dan CSV pendukung (metrik, perbandingan, jumlah sel, subgrup);
   - M0: `reports/m0_rule.md`;
   - SHAP: `reports/shap_{M2,M4}_fold19.md`, `reports/figures/shap_{M2,M4}_fold19.png`, `reports/shap_{M2,M4}_stabilitas.md`.
-- Gambar naskah (forest plot AUROC/AUPRC) dibuat dari CSV agregat keluaran evaluasi, tanpa membaca prediksi dan tanpa analisis tambahan. Kurva ROC dan kurva kalibrasi: lihat Bagian 14.
+- Gambar naskah (forest plot AUROC/AUPRC) dibuat dengan `python -m src.evaluation.plot_forest --fold 19` dari `reports/eval_fold19_metrics.csv` dan `reports/eval_fold19.md`, tanpa membaca prediksi dan tanpa analisis tambahan. Skrip ini sudah diuji di fold 18 (`reports/figures/gambar2_forest_fold18.png`). Kurva ROC dan kurva kalibrasi: lihat Bagian 14.
 
 ## 13. Prosedur
 
@@ -202,8 +207,8 @@ Rincian lengkap ada di decision log 2026-11-24 dan `reports/m0_rule.md`.
 6. SHAP fold 19, lalu cek stabilitas:
    - `python -m src.model.shap_tabular --model M2 --fold 19 --include-fold-19` (ulangi untuk M4);
    - `python -m src.model.shap_tabular --model M2 --stabilitas` (ulangi untuk M4).
-7. Gambar naskah dibuat dari keluaran agregat langkah 5 dan 6.
-8. Semua laporan agregat di-commit apa adanya.
+7. Gambar naskah dibuat dari keluaran agregat langkah 5 dan 6 (`python -m src.evaluation.plot_forest --fold 19`).
+8. Semua laporan agregat di-commit apa adanya. Karena `.gitignore` mengabaikan `*.csv`, CSV pendukung ditambahkan secara eksplisit: `git add -f reports/eval_fold19_*.csv reports/shap_M2_fold19.csv reports/shap_M4_fold19.csv`.
 9. Tidak ada tuning ulang setelah melihat fold 19. Kalau terpaksa, perubahan dicatat di decision log dan dilaporkan sebagai post-hoc, terpisah dari hasil utama.
 
 Tidak ada anggota tim yang menghitung metrik fold 19 di luar langkah 5 dan 6.
@@ -214,8 +219,8 @@ Tidak ada anggota tim yang menghitung metrik fold 19 di luar langkah 5 dan 6.
 - [ ] M5 vs M1 sebagai perbandingan eksploratif. Sudah diimplementasikan.
 - [ ] Usulan DRAF v1 "sensitivitas setiap model pada spesifisitas yang sama dengan M0" **tidak dipakai**. Alasannya, threshold itu harus dipilih dari data fold 19 sendiri, dan perbandingan dengan M0 sudah dilakukan pada threshold terkunci (Bagian 6).
 - [x] Pembuat `M1_fold19`: Orang 2. Berkasnya sudah ada dan checksum-nya cocok.
-- [ ] Orang 2 mengonfirmasi bahwa `signal_qc_full.csv` (yang dipakai untuk `M1_fold19`) identik dengan `data/interim/signal_qc.csv`, yang sha256-nya diawali `68353a95` dan diakhiri `bb23b`. Bila berbeda, jumlah kunjungan fold 19 yang berbeda dilaporkan (agregat) dan ditangani sebelum dokumen ini final.
-- [ ] Entri decision log Orang 2 tentang `M1_fold19` ditambahkan ke `reports/decision_log.md`. Entri itu mencakup tanggal pembuatan, checksum, dan pernyataan bahwa belum ada metrik yang dihitung.
+- [x] Orang 2 mengonfirmasi bahwa `signal_qc_full.csv` (yang dipakai untuk `M1_fold19`) identik dengan `data/interim/signal_qc.csv`, yang sha256-nya diawali `68353a95` dan diakhiri `bb23b`. Bila berbeda, jumlah kunjungan fold 19 yang berbeda dilaporkan (agregat) dan ditangani sebelum dokumen ini final. **Selesai:** identik; sha256 lengkap dicatat di entri decision log 2026-11-21.
+- [x] Entri decision log Orang 2 tentang `M1_fold19` ditambahkan ke `reports/decision_log.md`. Entri itu mencakup tanggal pembuatan, checksum, dan pernyataan bahwa belum ada metrik yang dihitung. **Selesai:** ditambahkan 2026-11-24.
 - [ ] Perlu atau tidaknya kurva ROC (dengan titik operasi M0) dan kurva kalibrasi di naskah. Kalau perlu, Orang 3 menambahkan ekspor titik kurva agregat ke `run_fold19.py` dan mengujinya di fold 18 sebelum dokumen ini final.
 - [ ] Fold untuk Grad-CAM dan oklusi M1 (Orang 2). Usulan: sama dengan SHAP, yaitu fold 19 utama.
 - [ ] Persetujuan dosen pembimbing: definisi label, aturan M0-v2, dan rencana ini.

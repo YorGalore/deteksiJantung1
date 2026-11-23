@@ -299,3 +299,20 @@ Mengoreksi/melengkapi entri "Skala data M1: tahap 2a" di atas. Tidak ada keputus
    - SHAP fold 19 hanya dengan `--include-fold-19`, setelah rencana analisis FINAL di-commit.
 
 **Disetujui oleh:** Orang 3 (Freta Yordinia Laura). Tanggal: 2026-11-24
+
+---
+
+## 2026-11-21 — Prediksi M1 untuk fold 19 (test terkunci) dibuat
+
+**Pembukaan fold 19 untuk M1.** `predictions/M1_fold19.parquet` dibuat satu kali dengan perintah yang sama seperti fold 17 dan 18: `python -u -m src.model.predict_m1 --qc-csv data/interim/signal_qc_full.csv --folds 19 --include-fold-19`. Model, statistik lead, praproses, dan aturan QC tidak diubah (checkpoint `m1_best.pt` epoch 12, `lead_stats.json` dari data training fold 0-16). Hasil: 7.217 baris (7.227 rekaman fold 19 dikurangi 10 yang gagal QC sinyal), ID unik, `y_prob` 0-1 tanpa NaN; kolom sesuai kontrak (ed_stay_id, subject_id, study_id, fold, y_true, y_prob). SHA-256 berkas: `d75dfb9e295cb10e1d98a743bf9474792b9458e38b24a4c48fde8ab7e1ee9460`.
+
+**Dasar pembukaan.** Rencana analisis fold 19: belum ada rencana yang di-commit saat berkas ini dibuat (2026-11-21); DRAF v1 (2026-11-14) belum di-commit, DRAF v2 di-commit 2026-11-24 (`16ca7d4`), versi final lihat entri persetujuan rencana analisis. Kode evaluasi Orang 3 sudah diuji di fold 18 sebelum fold 19 dibuka: saat berkas ini dibuat baru `run_fold18.py` (kalibrasi dan threshold M1-M6, commit `61b8749`, 2026-11-14) yang diuji; skrip evaluasi akhir `run_fold19.py` baru diuji di fold 18 pada 2026-11-24 (commit `76d29fc`). Keputusan skala M1: tetap M1 epoch 12 yang dilatih pada subset fold 0-16 (±13%), sesuai keterbatasan di decision log 2026-11-14; dikonfirmasi oleh Orang 1 (Anna) dan Orang 3 (Dini) pada 2026-11-14 (entri decision log "Skala data M1 tahap 2a disetujui sebagai M1 final"); tidak ada keputusan baru sejak itu.
+
+**Batasan.** Orang 2 tidak menghitung atau melihat metrik fold 19; prediksi dikirim ke Orang 3 lewat jalur privat (berisi ID pasien, tidak di-commit). Tidak ada pelatihan ulang, tuning, atau perubahan threshold setelah fold 19 dibuat; jika terjadi, dicatat sebagai post-hoc. Pemeriksaan kode oleh Antigravity (hanya kode, tanpa data) tidak menemukan jalur yang melewati penguncian fold 19; angka tes yang dilaporkannya (41) tidak dipakai, dan suite lengkap lokal 144 tes lolos sebelum fold 19 dibuat.
+
+**Tambahan 2026-11-24 (Orang 3).**
+- SHA-256 salinan `M1_fold19.parquet` di laptop Orang 3 sama dengan nilai di atas.
+- Berkas QC yang dipakai, `signal_qc_full.csv`, identik dengan `data/interim/signal_qc.csv` (dipakai model tabular dan M0). SHA-256 keduanya: `68353a9565f395b71cb7f0896bb0bfda84cb1eb7714eb08128e69312f99bb23b`. Akibatnya M1 dan model lain dinilai pada kunjungan fold 19 yang sama.
+- Pembukaan fold 19 untuk M1 terjadi sebelum rencana analisis di-commit. Ini penyimpangan dari prosedur (PROJECT_BRIEF 11.5) dan dicatat apa adanya.
+- Isian "dikonfirmasi oleh ... pada ..." di paragraf **Dasar pembukaan** ditulis Orang 3 atas izin Orang 2 (2026-11-24), merujuk entri decision log 2026-11-14.
+- Sampai 2026-11-24, Orang 3 hanya memeriksa checksum, jumlah baris, dan nama kolom berkas ini; tidak ada metrik fold 19 yang dihitung. Metrik fold 19 hanya akan dihitung oleh `run_fold19.py` setelah rencana analisis final di-commit.
