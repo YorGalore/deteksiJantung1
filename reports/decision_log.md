@@ -316,3 +316,74 @@ Mengoreksi/melengkapi entri "Skala data M1: tahap 2a" di atas. Tidak ada keputus
 - Pembukaan fold 19 untuk M1 terjadi sebelum rencana analisis di-commit. Ini penyimpangan dari prosedur (PROJECT_BRIEF 11.5) dan dicatat apa adanya.
 - Isian "dikonfirmasi oleh ... pada ..." di paragraf **Dasar pembukaan** ditulis Orang 3 atas izin Orang 2 (2026-11-24), merujuk entri decision log 2026-11-14.
 - Sampai 2026-11-24, Orang 3 hanya memeriksa checksum, jumlah baris, dan nama kolom berkas ini; tidak ada metrik fold 19 yang dihitung. Metrik fold 19 hanya akan dihitung oleh `run_fold19.py` setelah rencana analisis final di-commit.
+
+## 2026-11-24 — Keputusan A2 rencana analisis fold 19: threshold setara M0, kurva kalibrasi, XAI, dan pelaporan (Orang 3)
+
+**Latar belakang:**
+- Rencana analisis DRAF v3 (commit `5bfc459`) masih menyisakan beberapa keputusan di Bagian 14. Keputusan di bawah diambil pada 24 November 2026, sebelum fold 19 dibuka.
+- Tidak ada metrik fold 19 yang dilihat. Semua angka yang disebut di sini berasal dari fold 18 (uji kode, in-sample) atau fold 0–16.
+
+**Keputusan:**
+1. **Metrik utama M5 vs M4 = ΔAUROC**, sesuai proposal 2.8.
+2. **M5 vs M1** dilaporkan sebagai perbandingan eksploratif, sesuai proposal 2.8.
+3. **Sensitivitas pada spesifisitas setara M0** dipakai sebagai jawaban utama pertanyaan sekunder (d) proposal. Usulan DRAF v3 untuk tidak memakainya dibatalkan.
+   - Alasan: pada threshold rule-out dan rule-in, tidak ada model yang lebih unggul daripada M0 di sensitivitas **dan** spesifisitas sekaligus di fold 18. Perbandingan pada titik operasi itu hanya menggambarkan trade-off. Al-Zaiti dkk. (Nature Medicine 2023) bisa menyimpulkan modelnya lebih baik karena model itu unggul di kedua angka.
+   - Supaya tidak memilih threshold dari data test, threshold **dikunci di fold 18** dengan `src/evaluation/lock_m0_threshold.py` → `reports/locked_fold18_m0.json` (commit `eef89dc`).
+   - Aturan: threshold terkecil di fold 18 dengan spesifisitas ≥ spesifisitas M0 primer di fold 18 = 0,9782 (7.143 dari 7.302 negatif), dihitung pada berkas fold 18 utuh setiap model. Prediksi positif bila `y_prob` mentah ≥ threshold.
+   - Nilai threshold (`y_prob` mentah): M1 0,887541; M2 0,845454; M3 0,789982; M4 0,832852; M5 0,168243; M6 0,169488. Semuanya memberi spesifisitas tepat 0,9782 di fold 18 (in-sample).
+   - Skrip menolak menimpa berkas yang sudah ada. `locked_fold18.json` tidak disentuh. `run_fold19.py` memeriksa sha256 berkas prediksi fold 18 dan, untuk fold 19, mewajibkan `locked_fold18_m0.json` sudah di-commit tanpa perubahan.
+4. **Kurva kalibrasi fleksibel** setelah Platt dilaporkan untuk M1–M6. Gambar naskah menampilkan M4 dan M5. Kurva ROC tidak dilaporkan.
+   - Dasar: TRIPOD+AI 2024 butir 12e; Van Calster dkk. (BMC Medicine 2019) tentang kurva kalibrasi yang dihaluskan.
+   - Metode (`src/evaluation/calibration_curve.py`):
+     - regresi logistik hasil terhadap restricted cubic spline dari logit p, 4 knot pada persentil 5/35/65/95 (Harrell);
+     - grid 50 titik yang rata di skala logit, antara persentil 1 dan 99 dari p;
+     - IK 95% dari bootstrap per `subject_id`, 2.000×, dengan knot dan grid tetap;
+     - iterasi yang gagal tidak dihitung.
+   - Keluaran: `{stem}_calibration_curve.csv`, `{stem}_calibration_bins.csv`, dan `reports/figures/kalibrasi_fold{N}.png` (`src/evaluation/plot_calibration.py`).
+   - Uji kode fold 18 (commit `0740e58`): selisih maksimum antara proporsi teramati dan prediksi pada grid 0,003 (M4) dan 0,012 (M5), in-sample. Semua angka lama di laporan fold 18 identik (118 dari 118 baris, selisih maksimum 0,0).
+5. **Aturan "<10" berlaku untuk hitungan.** Proporsi (sensitivitas, spesifisitas, PPV, NPV) dan IK-nya dilaporkan apa adanya, termasuk di subgrup. Supresi komplementer untuk hitungan tetap berlaku.
+6. **Grad-CAM dan oklusi M1:**
+   - Hasil validasi internal fold 0–16 (entri 2026-11-05) tetap dipakai.
+   - Uji yang sama diulang di fold 19 (150 IMA + 150 non-IMA, seed 42) sebagai konfirmasi pada data independen. Uji ini dijalankan Orang 2 setelah rencana FINAL.
+   - Atas izin Orang 2, skrip `src/xai/run_xai_sanity.py` dan `run_xai_faithfulness.py` mendapat opsi `--fold` (`src/xai/selection.py`, commit `dbec679`):
+     - `internal` (bawaan) memilih rekaman yang sama dengan versi asli;
+     - `18` untuk uji kode;
+     - `19` hanya bisa dipakai dengan `--include-fold-19` setelah rencana FINAL.
+   - Uji kode fold 18 oleh Orang 2 (`jalankan_xai_fold18.sh`) dicatat di entri terpisah setelah hasilnya ada.
+7. **SHAP global saja.** Tidak ada penjelasan per pasien, karena penjelasan per pasien akan menampilkan data individual MIMIC, sedangkan pertanyaan penelitian berada di tingkat populasi. Contoh ilustratif, kalau diperlukan, hanya memakai profil sintetis berlabel "bukan pasien nyata".
+8. **Hasil fold 19 hanya di-push ke repo tim privat** (`melinda-ab/deteksi-serangan-jantung`).
+9. **Persetujuan:**
+   - Orang 1 (Ana) dan Orang 2 (Ayu) menyatakan setuju pada 23 November 2026 atas draf rencana yang ada saat itu. Pernyataan ini dicatat sebagai riwayat.
+   - Karena teks rencana berubah sesudahnya (DRAF v3 dan v4, 24 November), persetujuan yang berlaku adalah persetujuan atas **teks final**. Persetujuan itu dicatat di Bagian 16 rencana, dengan tanggal yang sama dengan atau setelah tanggal teks final.
+
+**Dokumen terkait:**
+- rencana analisis DRAF v4 (`reports/rencana_analisis_fold19.md`);
+- forest plot dari CSV agregat (`src/evaluation/plot_forest.py`, commit `0ce01fc`);
+- kode threshold setara M0 dan kurva kalibrasi (`14a545d`).
+
+**Diputuskan oleh:** Orang 3 (Freta Yordinia Laura), 2026-11-24. Persetujuan Orang 1, Orang 2, dan dosen pembimbing atas teks final dicatat saat rencana FINAL.
+
+## 2026-11-24 — Uji kode XAI M1 di fold 18 (dijalankan Orang 2, dicatat Orang 3)
+
+**Pelaksanaan:**
+- Dijalankan Orang 2 (Ayu) di laptopnya dengan `jalankan_xai_fold18.sh`, pada commit `dbec679`, 2026-11-24 pukul 10.33.
+- Skrip ini tidak membuka fold 19, tidak menulis ke repo, dan tidak melakukan commit.
+- Keluaran lengkapnya, yang hanya berisi angka agregat, disimpan di `reports/xai_fold18.txt`.
+- Sampel: 150 IMA + 150 non-IMA, seed 42, sama dengan validasi internal 5 November.
+
+**Hasil (memenuhi ketiga syarat uji kode):**
+1. Tes: 11 lolos (`tests/test_xai_selection.py` dan `tests/test_xai.py`).
+2. Perilaku bawaan tidak berubah. Jalan validasi internal fold 0-16 mengulang angka 5 November: korelasi Grad-CAM model terlatih vs model acak median −0,042 dan p90 0,176 (5 November: −0,04 dan 0,18).
+3. Kedua jalan `--fold 18` (sanity dan faithfulness) berlabel "fold 18 (UJI KODE; fold 18 tidak dipakai melatih M1)" dan hanya berisi angka agregat.
+
+**Angka fold 18** (uji kode, bukan hasil naskah; dicatat sebagai pembanding hasil fold 19):
+- Uji acak-bobot: median −0,060, p90 0,247. Peta Grad-CAM tetap bergantung pada bobot terlatih.
+- Faithfulness waktu (menolkan 4 dari 20 blok 0,5 detik):
+  - IMA: penurunan logit pada wilayah Grad-CAM tertinggi 0,982, acak 0,661, terendah 0,361. Selisih tertinggi − acak 0,322 (IK 95% 0,261–0,381); 85% rekaman.
+  - Non-IMA: selisih tertinggi − acak 0,173 (IK 95% 0,122–0,223); 72% rekaman.
+- Profil Grad-CAM tetap relatif datar sepanjang detik 1-9, sama dengan catatan 5 November.
+- Uji lead (menolkan 3 dari 12 lead) tetap **tidak** dipakai sebagai bukti faithfulness, karena hampir melingkar (catatan 5 November).
+
+**Kesimpulan:** kode XAI M1 siap dipakai di fold 19 sesuai rencana analisis (Bagian 11 dan 13). Butir Bagian 14 "uji kode XAI M1 di fold 18" dicentang di DRAF v4.
+
+**Dicatat oleh:** Orang 3 (Freta Yordinia Laura), 2026-11-24, berdasarkan keluaran dari Orang 2.
