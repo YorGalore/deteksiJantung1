@@ -1,0 +1,59 @@
+{
+  "fold": 18,
+  "rule": "threshold terkecil di fold 18 dengan spesifisitas >= spesifisitas M0 (primer) di fold 18; positif bila y_prob_raw >= threshold",
+  "target_specificity": 0.9782251437962202,
+  "m0": {
+    "rule_version": "M0-v2",
+    "rule_sha256": "f515ab4f4d4d8d85d2e249ecacbad94fe67fc4eaf93f5648b8e6d452df19589d",
+    "n": 7520,
+    "n_neg": 7302,
+    "specificity": 0.9782251437962202,
+    "sensitivity": 0.12385321100917432,
+    "predictions_sha256": "6254f1f1be0916ab311c6170f2ece11e9e7ca97ce563a05cb42a2cb4f740e323"
+  },
+  "models": {
+    "M1": {
+      "y_prob_raw": 0.8875413537025453,
+      "n": 7520,
+      "predictions_sha256": "0295de7df6778740e6bcd078176b8f63365f81b7164ccafd3cf0e211d93bb7dc",
+      "specificity_fold18": 0.9782251437962202,
+      "sensitivity_fold18": 0.22477064220183487
+    },
+    "M2": {
+      "y_prob_raw": 0.8454535007476808,
+      "n": 7520,
+      "predictions_sha256": "3ba8afce32496addfa8377795923b5aa83a0cbaa4f8b1e99c48e424017cd2ee4",
+      "specificity_fold18": 0.9782251437962202,
+      "sensitivity_fold18": 0.1926605504587156
+    },
+    "M3": {
+      "y_prob_raw": 0.789981782436371,
+      "n": 7520,
+      "predictions_sha256": "77350be62a64439cb8e2676dba089e7cd1c1ee53947bffae12495c4dd49abd07",
+      "specificity_fold18": 0.9782251437962202,
+      "sensitivity_fold18": 0.11926605504587157
+    },
+    "M4": {
+      "y_prob_raw": 0.832851529121399,
+      "n": 7520,
+      "predictions_sha256": "825de25602f933a1067384d667b80d010ff540c6867310d28403bef172e3a533",
+      "specificity_fold18": 0.9782251437962202,
+      "sensitivity_fold18": 0.22935779816513763
+    },
+    "M5": {
+      "y_prob_raw": 0.1682429438293815,
+      "n": 7520,
+      "predictions_sha256": "4f5811e7ae6e58e0668cd6853173ee76431b0a61a184472a59a98ec4db281602",
+      "specificity_fold18": 0.9782251437962202,
+      "sensitivity_fold18": 0.3073394495412844
+    },
+    "M6": {
+      "y_prob_raw": 0.16948752933886313,
+      "n": 7520,
+      "predictions_sha256": "e6caa6e7ce549849221494f5802337bab68032de4ddca6a31831fb21e007bae7",
+      "specificity_fold18": 0.9782251437962202,
+      "sensitivity_fold18": 0.22477064220183487
+    }
+  },
+  "created_utc": "2026-11-24T00:23:23+00:00"
+}
