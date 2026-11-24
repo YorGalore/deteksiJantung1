@@ -3,8 +3,12 @@
 Jalankan dari root repo:
     python -u -m src.xai.run_xai_faithfulness
 
-Keluaran: angka agregat (rata-rata penurunan logit + selang 95% bootstrap). Tidak menyentuh fold 17-19,
-tidak menulis berkas, tidak ada keluaran per pasien.
+Keluaran: angka agregat (rata-rata penurunan logit + selang 95% bootstrap). Tidak menulis berkas, tidak ada
+keluaran per pasien. Fold 17 tidak pernah dipakai.
+
+Opsi fold (src/xai/selection.py), bawaan tetap validasi internal fold 0-16:
+    python -u -m src.xai.run_xai_faithfulness --fold 18                       # uji kode sebelum rencana FINAL
+    python -u -m src.xai.run_xai_faithfulness --fold 19 --include-fold-19     # setelah rencana analisis FINAL
 """
 from __future__ import annotations
 
@@ -21,6 +25,7 @@ from src.model.ecg_preprocessing import LeadStandardizer
 from src.model.resnet1d import resnet1d
 from src.model.train_smoke import load_checkpoint
 from src.xai.ecg_xai import grad_cam_1d, lead_occlusion
+from src.xai.selection import CHOICES, pick_records, resolve
 from src.xai.faithfulness import lead_faithfulness, mean_ci, time_faithfulness
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -44,11 +49,14 @@ def main(argv=None) -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--n-per-class", type=int, default=150)
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--fold", choices=CHOICES, default="internal",
+                    help="internal = validasi internal fold 0-16 (bawaan, perilaku asli); 18 = uji kode; 19 = setelah FINAL")
+    ap.add_argument("--include-fold-19", action="store_true")
     a = ap.parse_args(argv)
 
-    table = load_record_table(QC_CSV, MASTER, range(0, 17))          # fold 17+ ditolak
-    val = table[table[VAL_COL] == 1]
-    pick = pd.concat([val[val.label_ami == c].sample(a.n_per_class, random_state=a.seed) for c in (1, 0)])
+    folds, allow_locked, label = resolve(a.fold, a.include_fold_19)  # fold 17 ditolak; 19 hanya setelah FINAL
+    table = load_record_table(QC_CSV, MASTER, folds, allow_locked=allow_locked)
+    pick = pick_records(table, a.fold, a.n_per_class, a.seed)
     ds = ECGDataset(pick.reset_index(drop=True), CACHE, PREFIX,
                     standardizer=LeadStandardizer.load(OUT_DIR / "lead_stats.json"))
     x = torch.stack([ds[i][0] for i in range(len(ds))])
@@ -58,7 +66,7 @@ def main(argv=None) -> None:
 
     cam = grad_cam_1d(model, x)
     occ = lead_occlusion(model, x)
-    print("=== Faithfulness XAI (validasi internal fold 0-16; penurunan logit = logit asli - logit setelah dinolkan) ===")
+    print(f"=== Faithfulness XAI ({label}; penurunan logit = logit asli - logit setelah dinolkan) ===")
     for cls, name in ((1, "AMI"), (0, "non-AMI")):
         m = y == cls
         print(f"\n--- {name} (n={int(m.sum())}) ---")

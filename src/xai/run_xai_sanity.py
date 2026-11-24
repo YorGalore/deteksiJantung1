@@ -4,7 +4,11 @@ Jalankan dari root repo:
     python -u -m src.xai.run_xai_sanity
 
 Keluaran: angka agregat saja (oklusi rata-rata per lead, profil Grad-CAM per detik, uji acak-bobot).
-Tidak menyentuh fold 17-19, tidak menulis berkas, tidak ada keluaran per pasien.
+Tidak menulis berkas, tidak ada keluaran per pasien. Fold 17 tidak pernah dipakai.
+
+Opsi fold (src/xai/selection.py), bawaan tetap validasi internal fold 0-16:
+    python -u -m src.xai.run_xai_sanity --fold 18                       # uji kode sebelum rencana FINAL
+    python -u -m src.xai.run_xai_sanity --fold 19 --include-fold-19     # setelah rencana analisis FINAL
 """
 from __future__ import annotations
 
@@ -21,6 +25,7 @@ from src.model.ecg_preprocessing import LEAD_ORDER, LeadStandardizer
 from src.model.resnet1d import resnet1d
 from src.model.train_smoke import load_checkpoint
 from src.xai.ecg_xai import grad_cam_1d, lead_occlusion
+from src.xai.selection import CHOICES, pick_records, resolve
 
 ROOT = Path(__file__).resolve().parents[2]
 QC_CSV = ROOT / "data/interim/signal_qc_full.csv"
@@ -52,12 +57,15 @@ def main(argv=None) -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--n-per-class", type=int, default=150)
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--fold", choices=CHOICES, default="internal",
+                    help="internal = validasi internal fold 0-16 (bawaan, perilaku asli); 18 = uji kode; 19 = setelah FINAL")
+    ap.add_argument("--include-fold-19", action="store_true")
     a = ap.parse_args(argv)
 
-    table = load_record_table(QC_CSV, MASTER, range(0, 17))          # fold 17+ ditolak
-    val = table[table[VAL_COL] == 1]
+    folds, allow_locked, label = resolve(a.fold, a.include_fold_19)  # fold 17 ditolak; 19 hanya setelah FINAL
+    table = load_record_table(QC_CSV, MASTER, folds, allow_locked=allow_locked)
     rng = np.random.default_rng(a.seed)
-    pick = pd.concat([val[val.label_ami == c].sample(a.n_per_class, random_state=a.seed) for c in (1, 0)])
+    pick = pick_records(table, a.fold, a.n_per_class, a.seed)
     stats = LeadStandardizer.load(OUT_DIR / "lead_stats.json")
     ds = ECGDataset(pick.reset_index(drop=True), CACHE, PREFIX, standardizer=stats)
     x = torch.stack([ds[i][0] for i in range(len(ds))])
@@ -68,7 +76,7 @@ def main(argv=None) -> None:
     torch.manual_seed(a.seed)
     r = summarize_xai(model, resnet1d(), x, y)
 
-    print(f"=== XAI sanity (validasi internal fold 0-16; {r['n_pos']} AMI, {r['n_neg']} non-AMI) ===")
+    print(f"=== XAI sanity ({label}; {r['n_pos']} AMI, {r['n_neg']} non-AMI) ===")
     print("\nOklusi per lead (rata-rata penurunan logit saat lead dinolkan):")
     print(pd.DataFrame({"AMI": r["occ_pos"], "non-AMI": r["occ_neg"]}, index=LEAD_ORDER).round(3).to_string())
     print("\nGrad-CAM rata-rata per detik (0-1, tiap bin = 1 detik):")
