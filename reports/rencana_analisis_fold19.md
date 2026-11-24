@@ -1,6 +1,6 @@
 # Rencana Analisis Final (Fold 19)
 
-**Status: DRAF v4 (2026-11-24), disusun Orang 3. Belum berlaku.**
+**Status: FINAL (2026-11-24)**
 
 Dokumen ini disimpan di `reports/rencana_analisis_fold19.md`. Dokumen menjadi final setelah:
 - disetujui tim dan dosen pembimbing atas teks ini (Bagian 16);
@@ -30,6 +30,11 @@ Perubahan dari DRAF v3 (2026-11-24), sesuai keputusan tim 24 November (decision 
 - hasil fold 19 hanya di-push ke repo tim privat (Bagian 13);
 - uji kode XAI M1 di fold 18 oleh Orang 2 sudah lolos (`reports/xai_fold18.txt`; Bagian 11 dan 14);
 - semua butir Bagian 14 diperbarui.
+
+Perubahan dari DRAF v4 (commit `7dd69f4`) ke FINAL bersifat administratif saja. Isi analisis sama persis dengan teks yang disetujui. Yang berubah:
+- baris status;
+- butir persetujuan dan ejaan nama di Bagian 14;
+- tabel persetujuan di Bagian 16.
 
 ---
 
@@ -296,8 +301,8 @@ Keputusan butir pertama sampai kesembilan diambil pada 2026-11-24 (decision log,
 - [x] `signal_qc_full.csv` identik dengan `signal_qc.csv`. sha256 lengkap dicatat di entri decision log 2026-11-21.
 - [x] Entri decision log Orang 2 tentang `M1_fold19` sudah ditambahkan (commit `5bfc459`).
 - [x] Uji kode XAI M1 di fold 18 oleh Orang 2 lolos (`jalankan_xai_fold18.sh`, commit `dbec679`, 2026-11-24). Keluaran ada di `reports/xai_fold18.txt` dan dicatat di decision log.
-- [ ] Ejaan nama Orang 1 dikonfirmasi (Ana/Anna).
-- [ ] Persetujuan **atas teks dokumen ini** oleh Orang 1, Orang 2, Orang 3, dan dosen pembimbing (Bagian 16). Tanggal persetujuan harus sama dengan atau setelah tanggal teks ini. Pernyataan setuju Orang 1 dan Orang 2 pada 23 November berlaku untuk draf sebelumnya, dan dicatat sebagai riwayat di decision log.
+- [x] Ejaan nama Orang 1 dikonfirmasi: **Anna**. "Ana" di dokumen lain merujuk ke orang yang sama. "Dini" di decision log 2026-11-14 adalah Orang 3 (Freta Yordinia Laura).
+- [x] Persetujuan **atas teks DRAF v4** (commit `7dd69f4`, di-push ke GitHub pada 2026-11-24 sebelum ketiga persetujuan di bawah; cap waktunya tercatat di GitHub) oleh Orang 1, Orang 2, Orang 3, dan dosen pembimbing, semuanya pada 2026-11-24 setelah teks itu di-push (Bagian 16). Pernyataan setuju Orang 1 dan Orang 2 pada 23 November berlaku untuk draf sebelumnya, dan dicatat sebagai riwayat di decision log.
 
 ## 15. Keterbatasan yang sudah diketahui (dilaporkan apa pun hasilnya)
 
@@ -315,11 +320,11 @@ Keputusan butir pertama sampai kesembilan diambil pada 2026-11-24 (decision log,
 
 ## 16. Persetujuan
 
-Persetujuan diberikan atas teks dokumen ini. Tanggal diisi pada hari persetujuan, yaitu sama dengan atau setelah tanggal teks ini.
+Persetujuan diberikan atas teks DRAF v4 (commit `7dd69f4`). Isi analisis teks itu sama dengan dokumen ini.
 
-| Peran | Nama | Tanggal | Setuju |
+| Peran | Nama | Tanggal dan waktu (WIB) | Setuju |
 |---|---|---|---|
-| Orang 1 | Ana | | |
-| Orang 2 | Ayu | | |
-| Orang 3 | Freta Yordinia Laura | | |
-| Dosen pembimbing | Drs. Medi, M.Kom. | | |
+| Orang 1 | Anna | 2026-11-24, 14.21 | Ya |
+| Orang 2 | Ayu | 2026-11-24, 14.29 | Ya |
+| Orang 3 | Freta Yordinia Laura (Dini) | 2026-11-24 | Ya (penyusun) |
+| Dosen pembimbing | Drs. Medi, M.Kom. | 2026-11-24, 14.35 | Ya |
