@@ -17,7 +17,7 @@ import pytest
 from scipy.special import expit
 
 from src.constants import ANALYSIS_COLS, EMR_FEATURES, ID_COLS, LABEL_COLS, MM_FEATURES, SPLIT_COLS
-from src.evaluation import lock, run_fold18, run_fold19
+from src.evaluation import lock, lock_m0_threshold, run_fold18, run_fold19
 from src.evaluation import predictions as P
 from src.evaluation.predictions import load_predictions, validate_predictions
 from src.model import m0_rule
@@ -150,6 +150,9 @@ def repo(tmp_path, monkeypatch):
     monkeypatch.setattr(lock, "ROOT", tmp_path)
     monkeypatch.setattr(run_fold19, "REPORTS", tmp_path / "reports")
     monkeypatch.setattr(run_fold19, "LOCKED", tmp_path / "reports/locked_fold18.json")
+    monkeypatch.setattr(run_fold19, "LOCKED_M0", tmp_path / "reports/locked_fold18_m0.json")
+    monkeypatch.setattr(lock_m0_threshold, "ROOT", tmp_path)
+    monkeypatch.setattr(lock_m0_threshold, "OUT", tmp_path / "reports/locked_fold18_m0.json")
     monkeypatch.setattr(run_fold18, "ROOT", tmp_path)
     monkeypatch.setattr(run_fold18, "REPORT", tmp_path / "reports/eval_fold18.md")
     monkeypatch.setattr(run_fold18, "LOCKED", tmp_path / "reports/locked_fold18.json")
@@ -159,9 +162,11 @@ def repo(tmp_path, monkeypatch):
     return tmp_path, master
 
 
-def lock_fold18(root: Path, master: pd.DataFrame):
+def lock_fold18(root: Path, master: pd.DataFrame, m0: bool = True):
     write_preds(root / "predictions", master, 18)
     run_fold18.main(["--models", "M1", "M2", "M3", "M4", "M5", "M6", "--n-boot", "20"])
+    if m0:
+        lock_m0_threshold.main([])
 
 
 # ---------------------------------------------------------------------------
@@ -364,6 +369,7 @@ def test_run_fold19_sanity_uses_each_model_full_file(repo, capsys):
     d = pd.read_parquet(root / "predictions/M1_fold18.parquet")
     d.iloc[25:].to_parquet(root / "predictions/M1_fold18.parquet", index=False)      # 25 kunjungan hilang
     run_fold18.main(["--models", "M1", "M2", "M3", "M4", "M5", "M6", "--n-boot", "20"])
+    lock_m0_threshold.main([])
     run_fold19.main(["--fold", "18", "--n-boot", "20"])
     out = capsys.readouterr().out
     assert out.count("-> OK") == 6 and "GAGAL" not in out
@@ -393,8 +399,9 @@ def test_run_fold19_fold19_locked_without_flag_or_git(repo):
 
 def test_run_fold19_full_once_then_posthoc(repo, capsys):
     root, master = repo
-    lock_fold18(root, master)
+    lock_fold18(root, master, m0=False)
     m0_rule.main(["--folds", "18"])
+    lock_m0_threshold.main([])                                               # setelah M0_fold18 final
     (root / "src/model").mkdir(parents=True)
     shutil.copy(REPO / "src/model/m0_rule.py", root / "src/model/m0_rule.py")
     (root / "reports/rencana_analisis_fold19.md").write_text("**Status: FINAL (uji)**\n", encoding="utf-8")
@@ -408,6 +415,8 @@ def test_run_fold19_full_once_then_posthoc(repo, capsys):
     run_fold19.main(["--fold", "19", "--include-fold-19", "--n-boot", "30"])
     rep = (root / "reports/eval_fold19.md").read_text()
     assert "# Evaluasi akhir fold 19" in rep and "UJI KODE" not in rep and "Penguncian: rencana analisis" in rep
+    assert "locked_fold18_m0.json `" in rep and "spesifisitas setara M0" in rep
+    assert (root / "reports/eval_fold19_calibration_curve.csv").exists()
     with pytest.raises(SystemExit, match="SATU kali"):
         run_fold19.main(["--fold", "19", "--include-fold-19", "--n-boot", "30"])
     run_fold19.main(["--fold", "19", "--include-fold-19", "--n-boot", "30", "--overwrite-post-hoc"])
@@ -507,3 +516,99 @@ def test_shap_complementary_suppression():
 def test_shap_fold19_locked(tmp_path):
     r = run_py(tmp_path, ["from src.model import shap_tabular as S", "S.main(['--model', 'M4', '--fold', '19'])"])
     assert r.returncode != 0 and "dikunci" in (r.stdout + r.stderr)
+
+
+# ---------------------------------------------------------------------------
+# v1.7: threshold spesifisitas setara M0 (dikunci di fold 18) dan kurva kalibrasi fleksibel
+# ---------------------------------------------------------------------------
+def test_lock_m0_threshold_once_and_meets_target(repo, capsys):
+    root, master = repo
+    lock_fold18(root, master)
+    j = json.loads((root / "reports/locked_fold18_m0.json").read_text())
+    m0 = pd.read_parquet(root / "predictions/M0_fold18.parquet")
+    neg = m0["y_true"] == 0
+    assert j["target_specificity"] == pytest.approx(float((m0.loc[neg, "y_prob"] == 0).mean()))
+    for m in ("M1", "M2", "M3", "M4", "M5", "M6"):
+        d = pd.read_parquet(root / f"predictions/{m}_fold18.parquet")
+        thr = j["models"][m]["y_prob_raw"]
+        spec = float((d.loc[d.y_true == 0, "y_prob"] < thr).mean())
+        assert spec >= j["target_specificity"]
+        # threshold terkecil: satu langkah di bawahnya spesifisitas tidak lagi memenuhi
+        below = np.nextafter(d.loc[d.y_true == 0, "y_prob"][d.loc[d.y_true == 0, "y_prob"] < thr].max(), -np.inf)
+        assert float((d.loc[d.y_true == 0, "y_prob"] < below).mean()) < j["target_specificity"]
+    assert "30000" not in json.dumps(j) and not list(root.glob("predictions/*fold19*"))
+    with pytest.raises(SystemExit, match="SATU kali"):
+        lock_m0_threshold.main([])
+
+
+def test_run_fold19_needs_m0_lock(repo):
+    root, master = repo
+    lock_fold18(root, master, m0=False)
+    with pytest.raises(SystemExit, match="lock_m0_threshold"):
+        run_fold19.main(["--fold", "18", "--n-boot", "10"])
+
+
+def test_run_fold19_m0_match_and_calibration_outputs(repo, capsys):
+    root, master = repo
+    lock_fold18(root, master)
+    run_fold19.main(["--fold", "18", "--n-boot", "40"])
+    out = capsys.readouterr().out
+    assert out.count("-> OK") == 6 and "spes@setara-M0" in out
+    rep = (root / "reports/eval_fold18_uji_final.md").read_text()
+    assert "Pada spesifisitas setara M0" in rep and "spes setara M0" in rep
+    comp = pd.read_csv(root / "reports/eval_fold18_uji_final_comparisons.csv")
+    for m in ("M1", "M5"):
+        r = comp[(comp.target == f"{m} - M0") & (comp.metric == "Spes@spes-M0")]
+        assert len(r) == 1
+    met = pd.read_csv(root / "reports/eval_fold18_uji_final_metrics.csv")
+    target = json.loads((root / "reports/locked_fold18_m0.json").read_text())["target_specificity"]
+    spes = met[(met.metric == "Spes@spes-M0") & met.target.isin(["M1", "M2", "M3", "M4", "M5", "M6"])]["estimate"]
+    assert len(spes) == 6 and (spes >= target - 1e-12).all()                 # in-sample di fold 18
+    curve = pd.read_csv(root / "reports/eval_fold18_uji_final_calibration_curve.csv")
+    assert set(curve.model) == {"M1", "M2", "M3", "M4", "M5", "M6"} and len(curve) == 6 * 50
+    assert ((curve.ci_low <= curve.p_obs + 1e-9) & (curve.p_obs <= curve.ci_high + 1e-9)).mean() > 0.95
+    assert curve.n_valid.min() > 30
+    bins = pd.read_csv(root / "reports/eval_fold18_uji_final_calibration_bins.csv", dtype={"n": str})
+    assert len(bins) == 60 and all(v == "<10" or int(v.replace(",", "")) >= 10 for v in bins.n)
+    counts = pd.read_csv(root / "reports/eval_fold18_uji_final_counts.csv")
+    assert (counts.threshold == "spes setara M0").sum() == 6
+
+
+def test_run_fold19_m0_threshold_tampered_fails(repo):
+    root, master = repo
+    lock_fold18(root, master)
+    p = root / "reports/locked_fold18_m0.json"
+    j = json.loads(p.read_text())
+    j["models"]["M4"]["y_prob_raw"] = 0.0
+    p.write_text(json.dumps(j))
+    with pytest.raises(SystemExit, match="Uji fold 18 GAGAL"):
+        run_fold19.main(["--fold", "18", "--n-boot", "10"])
+
+
+def test_flexible_calibration_curve_tracks_truth():
+    from src.evaluation import calibration_curve as C
+    rng = np.random.default_rng(3)
+    n = 20000
+    p = expit(rng.normal(-3.3, 1.2, n))
+    y_ok = (rng.random(n) < p).astype(int)                                 # terkalibrasi sempurna
+    y_over = (rng.random(n) < p * 0.5).astype(int)                          # model 2x terlalu tinggi
+    subj = np.arange(n)
+    rows = pd.DataFrame(C.calibration_curves(y_ok, {"ok": p, "over": p}, subj, n_boot=30, seed=1))
+    ok = rows[rows.model == "ok"]
+    over = rows[rows.model == "over"]
+    rows2 = pd.DataFrame(C.calibration_curves(y_over, {"over": p}, subj, n_boot=30, seed=1))
+    mid = (ok.p_pred > 0.02) & (ok.p_pred < 0.3)
+    assert np.abs(ok.p_obs[mid] - ok.p_pred[mid]).max() < 0.03
+    assert (rows2.p_obs.to_numpy()[mid.to_numpy()] < 0.75 * rows2.p_pred.to_numpy()[mid.to_numpy()]).all()
+    assert len(over) == 50 and over.p_pred.is_monotonic_increasing
+
+
+def test_rcs_basis_linear_outside_knots():
+    from src.evaluation.calibration_curve import rcs_basis
+    k = np.array([-3.0, -1.0, 0.0, 2.0])
+    x = np.array([3.0, 4.0, 5.0])
+    B = rcs_basis(x, k)
+    assert B.shape == (3, 3)
+    d2 = np.diff(B, n=2, axis=0)                                            # linear di kanan knot terakhir
+    assert np.allclose(d2, 0, atol=1e-10)
+    assert np.allclose(rcs_basis(np.array([-5.0, -4.0]), k)[:, 1:], 0)      # nol di kiri knot pertama

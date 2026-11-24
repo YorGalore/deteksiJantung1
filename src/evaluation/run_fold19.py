@@ -8,15 +8,18 @@ Jalankan dari root repo:
 
 Yang dilakukan (sama untuk fold 18 dan 19; parameter TIDAK dipilih ulang):
   1. Baca predictions/{M0..M6}_fold{N}.parquet dan gabungkan pada kunjungan yang sama.
-  2. Pakai kalibrasi Platt + threshold rule-out/rule-in dari reports/locked_fold18.json apa adanya.
+  2. Pakai kalibrasi Platt + threshold rule-out/rule-in dari reports/locked_fold18.json apa adanya,
+     dan threshold spesifisitas setara M0 dari reports/locked_fold18_m0.json (src.evaluation.lock_m0_threshold).
      M0 biner: positif bila y_prob = 1 (tanpa kalibrasi/threshold).
-  3. Metrik per model, perbandingan utama M5 vs M4, perbandingan eksploratif, perbandingan dengan M0,
-     subgrup, dan analisis sensitivitas, semuanya dengan bootstrap berpasangan per subject_id.
+  3. Metrik per model, perbandingan utama M5 vs M4, perbandingan eksploratif, perbandingan dengan M0
+     (termasuk pada spesifisitas setara M0), subgrup, dan analisis sensitivitas, semuanya dengan bootstrap
+     berpasangan per subject_id.
+  4. Kurva kalibrasi fleksibel setelah Platt (src/evaluation/calibration_curve.py) dengan IK bootstrap.
 Keluaran (hanya angka agregat; hitungan < 10 ditulis "<10"):
   fold 18: reports/eval_fold18_uji_final.md + .csv pendukung   (UJI KODE, bukan hasil)
   fold 19: reports/eval_fold19.md + .csv pendukung             (hasil akhir; menolak jalan kedua)
-Fold 19 hanya bisa dibuka bila rencana analisis FINAL, locked_fold18.json, dan aturan M0 sudah di-commit
-(src/evaluation/lock.py).
+Fold 19 hanya bisa dibuka bila rencana analisis FINAL, locked_fold18.json, locked_fold18_m0.json, dan aturan M0
+sudah di-commit (src/evaluation/lock.py).
 """
 from __future__ import annotations
 
@@ -33,6 +36,7 @@ from src.constants import FOLD_TEST, FOLD_THRESHOLD
 from src.evaluation import lock
 from src.evaluation import predictions as P
 from src.evaluation.bootstrap import paired_bootstrap
+from src.evaluation.calibration_curve import calibration_curves
 from src.evaluation.core import (
     PlattCalibrator, binary_metrics, brier, calibration_intercept_slope, calibration_table, summarize,
 )
@@ -41,6 +45,8 @@ from src.model.metrics import pr_auc, roc_auc
 ROOT = Path(__file__).resolve().parents[2]
 REPORTS = ROOT / "reports"
 LOCKED = REPORTS / "locked_fold18.json"
+LOCKED_M0 = REPORTS / "locked_fold18_m0.json"          # threshold spesifisitas setara M0
+LOCKED_M0_REL = Path("reports/locked_fold18_m0.json")
 MODELS = ["M0", "M0S1", "M1", "M2", "M3", "M4", "M5", "M6"]
 BINARY_MODELS = {"M0", "M0S1"}            # M0 primer; M0S1 = analisis sensitivitas S1 (m0_rule.py)
 M0_SENS = ("M0S1", "M0")
@@ -61,6 +67,7 @@ class Locked:
     cal: PlattCalibrator | None
     thr_out: float
     thr_in: float
+    thr_m0: float | None = None          # spesifisitas setara M0 (fold 18); None bila tidak dievaluasi
 
 
 def load_locked(models: list[str], fold: int) -> tuple[dict[str, Locked], dict]:
@@ -70,7 +77,7 @@ def load_locked(models: list[str], fold: int) -> tuple[dict[str, Locked], dict]:
     out, notes = {}, {}
     for m in models:
         if m in BINARY_MODELS:
-            out[m] = Locked(None, 0.5, 0.5)
+            out[m] = Locked(None, 0.5, 0.5, 0.5)
             continue
         if m not in raw:
             raise SystemExit(f"{m} tidak ada di locked_fold18.json; kalibrasi/threshold {m} belum dikunci.")
@@ -83,7 +90,33 @@ def load_locked(models: list[str], fold: int) -> tuple[dict[str, Locked], dict]:
         if fold == FOLD_THRESHOLD and not same:
             raise SystemExit(f"predictions/{m}_fold18.parquet berbeda dari berkas saat threshold dikunci "
                              "(sha256 tidak cocok). Jalankan ulang run_fold18 untuk model ini dulu.")
+    score = [m for m in models if m not in BINARY_MODELS]
+    if "M0" in models and score:
+        load_locked_m0(out, score, fold, notes)
     return out, notes
+
+
+def load_locked_m0(out: dict[str, Locked], score: list[str], fold: int, notes: dict) -> dict:
+    """Isi Locked.thr_m0 dari locked_fold18_m0.json dan cek sha256 berkas fold 18 (M0 dan model)."""
+    if not LOCKED_M0.exists():
+        raise SystemExit("reports/locked_fold18_m0.json tidak ada. Jalankan src.evaluation.lock_m0_threshold dulu "
+                         "(sekali, di fold 18, sebelum rencana analisis FINAL).")
+    raw = json.loads(LOCKED_M0.read_text(encoding="utf-8"))
+    checks = {"M0": raw["m0"]["predictions_sha256"]}
+    for m in score:
+        if m not in raw["models"]:
+            raise SystemExit(f"{m} tidak ada di locked_fold18_m0.json.")
+        out[m].thr_m0 = float(raw["models"][m]["y_prob_raw"])
+        checks[m] = raw["models"][m]["predictions_sha256"]
+    for m, want in checks.items():
+        f18 = P.pred_path(m, FOLD_THRESHOLD, P.PRED_DIR)
+        same = f18.exists() and lock.sha256(f18) == want
+        notes[f"{m}@spes-M0"] = "cocok" if same else "BERBEDA/TIDAK ADA"
+        if fold == FOLD_THRESHOLD and not same:
+            raise SystemExit(f"predictions/{m}_fold18.parquet berbeda dari berkas saat threshold setara M0 dikunci "
+                             "(sha256 tidak cocok).")
+    out["_m0_target"] = Locked(None, raw["target_specificity"], raw["target_specificity"])
+    return raw
 
 
 # ---------------------------------------------------------------------------
@@ -119,6 +152,10 @@ def metric_fns(L: dict[str, Locked]) -> dict:
     for which in ("out", "in"):
         for name, f in (("Sens", _sens), ("Spes", _spec), ("PPV", _ppv), ("NPV", _npv)):
             fns[f"{name}@rule-{which}"] = (lambda f, w: lambda y, p, m: f(y, p >= thr(m, w)))(f, which)
+    if any(isinstance(v, Locked) and v.thr_m0 is not None for k, v in L.items() if not k.startswith("_")):
+        for name, f in (("Sens", _sens), ("Spes", _spec), ("PPV", _ppv), ("NPV", _npv)):
+            fns[f"{name}@spes-M0"] = (lambda f: lambda y, p, m: NAN if L[m].thr_m0 is None
+                                      else f(y, p >= L[m].thr_m0))(f)
     return fns
 
 
@@ -186,14 +223,15 @@ def evaluate(wide: pd.DataFrame, models: list[str], L: dict[str, Locked], pairs,
         p = probs[m]
         if m in BINARY_MODELS:
             point[m] = {"n": len(y), "n_pos": int(y.sum()), "prevalence": float(y.mean()),
-                        "m_out": binary_metrics(y, p, 0.5), "m_in": None}
+                        "m_out": binary_metrics(y, p, 0.5), "m_in": None, "m_m0": None}
             continue
         pc = L[m].cal.transform(p)
         raw = summarize(y, p)
         cal = calibration_intercept_slope(y, pc)
         point[m] = {**raw, "brier_kal": brier(y, pc), "cal_intercept_kal": cal["calibration_intercept"],
                     "cal_slope_kal": cal["calibration_slope"], "m_out": binary_metrics(y, p, L[m].thr_out),
-                    "m_in": binary_metrics(y, p, L[m].thr_in), "cal_table": calibration_table(y, pc)}
+                    "m_in": binary_metrics(y, p, L[m].thr_in), "cal_table": calibration_table(y, pc),
+                    "m_m0": None if L[m].thr_m0 is None else binary_metrics(y, p, L[m].thr_m0)}
 
     subgroups = []
     sub_fns = {k: fns[k] for k in ("AUROC", "Sens@rule-out", "Spes@rule-out")}
@@ -215,8 +253,12 @@ def evaluate(wide: pd.DataFrame, models: list[str], L: dict[str, Locked], pairs,
                   **{k: int((moved & pos & (wide[c] == 1).to_numpy()).sum())
                      for k, c in (("positif STEMI", "ami_stemi"), ("positif NSTEMI", "ami_nstemi"),
                                   ("positif tipe 2 murni", "ami_type2_only"))}}
+    print(f"  kurva kalibrasi fleksibel {n_boot}x ...", flush=True)
+    curves = calibration_curves(y, {m: L[m].cal.transform(probs[m]) for m in score_models}, subj,
+                                n_boot=n_boot, seed=seed) if score_models else []
     return {"boot": boot, "point": point, "subgroups": subgroups, "n": len(y), "n_pos": int(y.sum()),
-            "m0_switch": switch}
+            "m0_switch": switch, "cal_curves": curves,
+            "m0_target": L["_m0_target"].thr_out if "_m0_target" in L else None}
 
 
 def sanity_fold18(L: dict[str, Locked], models: list[str]) -> list[str]:
@@ -226,7 +268,7 @@ def sanity_fold18(L: dict[str, Locked], models: list[str]) -> list[str]:
     SEBELUM bootstrap. Bila gagal, berkas atau parameter tidak cocok."""
     msgs = []
     for m in models:
-        if m in BINARY_MODELS:
+        if m in BINARY_MODELS or m.startswith("_"):
             continue
         df = P.load_predictions(m, FOLD_THRESHOLD, pred_dir=P.PRED_DIR)
         y, p = df["y_true"].to_numpy(), df["y_prob"].to_numpy()
@@ -235,8 +277,14 @@ def sanity_fold18(L: dict[str, Locked], models: list[str]) -> list[str]:
         c = calibration_intercept_slope(y, L[m].cal.transform(p))
         ci, cs = c["calibration_intercept"], c["calibration_slope"]
         ok = so >= 0.90 and si >= 0.90 and abs(ci) < 0.01 and abs(cs - 1) < 0.01
+        extra = ""
+        if L[m].thr_m0 is not None:
+            target = L["_m0_target"].thr_out
+            sm = binary_metrics(y, p, L[m].thr_m0)["specificity"]
+            ok = ok and sm >= target
+            extra = f", spes@setara-M0 {sm:.4f} (target {target:.4f})"
         msgs.append(f"{m}: sens rule-out {so:.3f}, spes rule-in {si:.3f}, intercept/slope setelah Platt "
-                    f"{ci:.4f}/{cs:.4f} -> {'OK' if ok else 'GAGAL'}")
+                    f"{ci:.4f}/{cs:.4f}{extra} -> {'OK' if ok else 'GAGAL'}")
         if not ok:
             raise SystemExit("Uji fold 18 GAGAL: parameter terkunci tidak cocok dengan prediksi fold 18.\n" + "\n".join(msgs))
     return msgs
@@ -299,6 +347,7 @@ def comparison_rows(b: pd.DataFrame, pairs, metrics) -> list[dict]:
 def build_report(res: dict, models, pairs, fold: int, meta: dict) -> tuple[str, dict[str, pd.DataFrame]]:
     b, pt = res["boot"], res["point"]
     score = [m for m in models if m not in BINARY_MODELS]
+    has_m0 = res.get("m0_target") is not None
     head = ["# Evaluasi akhir fold 19" if fold == FOLD_TEST else "# UJI KODE evaluasi akhir di fold 18", "",
             "Dihasilkan otomatis oleh `src/evaluation/run_fold19.py`. Hanya angka agregat; hitungan < 10 ditulis \"<10\".", ""]
     if fold == FOLD_THRESHOLD:
@@ -314,7 +363,8 @@ def build_report(res: dict, models, pairs, fold: int, meta: dict) -> tuple[str, 
              f"{res['n_pos'] / res['n'] * 100:.2f}% | per model: {meta['n_per_model']} | dibuang: {meta['dropped']}"]
     if meta.get("lock"):
         head.append(f"- Penguncian: rencana analisis `{meta['lock']['plan_commit']}`, locked_fold18.json "
-                    f"`{meta['lock']['locked_fold18_commit']}`, aturan M0 `{meta['lock'].get('m0_rule_commit', '-')}`")
+                    f"`{meta['lock']['locked_fold18_commit']}`, aturan M0 `{meta['lock'].get('m0_rule_commit', '-')}`, "
+                    f"locked_fold18_m0.json `{meta['lock'].get('m0_threshold_commit', '-')}`")
     if meta.get("m0_rule"):
         head.append(f"- Aturan M0: {meta['m0_rule']}")
     head += ["- SHA-256 berkas prediksi:", *[f"  - {m}: `{s}`" for m, s in meta["sha"].items()], ""]
@@ -327,7 +377,8 @@ def build_report(res: dict, models, pairs, fold: int, meta: dict) -> tuple[str, 
                               "intercept/slope kalibrasi": "–",
                               "rule-out: sens / spes / PPV / NPV": " / ".join(
                                   ci_str(b, m, f"{k}@rule-out") for k in ("Sens", "Spes", "PPV", "NPV")),
-                              "rule-in: sens / spes / PPV / NPV": "(biner; sama dengan rule-out)"})
+                              "rule-in: sens / spes / PPV / NPV": "(biner; sama dengan rule-out)",
+                              **({"spes setara M0: sens / spes / PPV / NPV": "(titik operasi M0)"} if has_m0 else {})})
             continue
         per_model.append({
             "model": m, "AUROC": ci_str(b, m, "AUROC"), "AUPRC": ci_str(b, m, "AUPRC"), "Brier mentah": f3(p["brier"]),
@@ -335,11 +386,13 @@ def build_report(res: dict, models, pairs, fold: int, meta: dict) -> tuple[str, 
             "intercept/slope kalibrasi": f"{f3(p['cal_intercept_kal'])} / {f3(p['cal_slope_kal'])}",
             "rule-out: sens / spes / PPV / NPV": " / ".join(ci_str(b, m, f"{k}@rule-out") for k in ("Sens", "Spes", "PPV", "NPV")),
             "rule-in: sens / spes / PPV / NPV": " / ".join(ci_str(b, m, f"{k}@rule-in") for k in ("Sens", "Spes", "PPV", "NPV")),
+            **({"spes setara M0: sens / spes / PPV / NPV": " / ".join(
+                ci_str(b, m, f"{k}@spes-M0") for k in ("Sens", "Spes", "PPV", "NPV"))} if has_m0 else {}),
         })
     counts = []
     for m in models:
-        for name, key in (("rule-out", "m_out"), ("rule-in", "m_in")):
-            mm = pt[m][key]
+        for name, key in (("rule-out", "m_out"), ("rule-in", "m_in"), ("spes setara M0", "m_m0")):
+            mm = pt[m].get(key)
             if mm is None:
                 continue
             pos_cells = suppress_parts({"TP": mm["tp"], "FN": mm["fn"]})            # TP + FN = jumlah positif
@@ -383,6 +436,10 @@ def build_report(res: dict, models, pairs, fold: int, meta: dict) -> tuple[str, 
         "## 4. Dibandingkan dengan M0 (eksploratif)", "",
         "Selisih sensitivitas dan spesifisitas model pada threshold terkuncinya dikurangi M0 (biner).", "",
         md_table(comparison_rows(b, vs_m0, ["Sens@rule-out", "Spes@rule-out", "Sens@rule-in", "Spes@rule-in"])), "",
+        *([f"**Pada spesifisitas setara M0** (threshold dikunci di fold 18: spesifisitas model >= spesifisitas M0 "
+           f"di fold 18 = {res['m0_target']:.4f}; `reports/locked_fold18_m0.json`)", "",
+           md_table(comparison_rows(b, vs_m0, ["Sens@spes-M0", "Spes@spes-M0", "PPV@spes-M0", "NPV@spes-M0"])), ""]
+          if has_m0 else []),
         *m0_sens,
         "## 5. Subgrup dan analisis sensitivitas", "",
         "AUROC, sensitivitas, dan spesifisitas pada threshold rule-out terkunci. Subgrup dengan positif atau negatif "
@@ -401,7 +458,11 @@ def build_report(res: dict, models, pairs, fold: int, meta: dict) -> tuple[str, 
         for r in comparison_rows(s["boot"], [PRIMARY] if s["analisis"] in PRIMARY_REPEAT else [], ["AUROC"]):
             sub_diff.append({"analisis": s["label"], **r})
     lines += [md_table(sub_rows), "", "**M5 - M4 pada analisis yang direncanakan**", "", md_table(sub_diff), "",
-              "## 6. Tabel kalibrasi setelah Platt terkunci (10 bin berisi jumlah kunjungan sama)", ""]
+              "## 6. Kalibrasi setelah Platt terkunci", "",
+              "Kurva kalibrasi fleksibel (regresi logistik restricted cubic spline pada logit p, 4 knot; IK 95% "
+              f"bootstrap per subject_id, {meta['n_boot']}x) disimpan di `{meta['stem']}_calibration_curve.csv` "
+              "(grid 50 titik antara persentil 1 dan 99 prediksi). Tabel di bawah: 10 bin berisi jumlah kunjungan sama "
+              f"(juga di `{meta['stem']}_calibration_bins.csv`).", ""]
     for m in score:
         ct = [{"bin": r["bin"], "n": cnt(r["n"]), "rata-rata prediksi": f"{r['mean_pred']:.4f}",
                "proporsi teramati": f"{r['observed']:.4f}"} for r in pt[m]["cal_table"]]
@@ -416,6 +477,10 @@ def build_report(res: dict, models, pairs, fold: int, meta: dict) -> tuple[str, 
                                 for s in res["subgroups"] if s["boot"] is not None], ignore_index=True)
         if any(s["boot"] is not None for s in res["subgroups"]) else pd.DataFrame(),
     }
+    tables["calibration_curve"] = pd.DataFrame(res.get("cal_curves", []))
+    tables["calibration_bins"] = pd.DataFrame(
+        [{"model": m, "bin": r["bin"], "n": cnt(r["n"]), "mean_pred": r["mean_pred"], "observed": r["observed"]}
+         for m in score for r in pt[m]["cal_table"]])
     extra = []
     for m in score:
         p = pt[m]
@@ -460,6 +525,8 @@ def main(argv=None) -> None:
         if not a.include_fold_19:
             raise SystemExit("Fold 19 dikunci (brief 11.5). Tambahkan --include-fold-19 hanya untuk evaluasi akhir.")
         meta["lock"] = lock.require_fold19_unlocked(lock.ROOT, need_m0_rule=bool(BINARY_MODELS & set(models)))
+        if "M0" in models and any(m not in BINARY_MODELS for m in models):
+            meta["lock"]["m0_threshold_commit"] = lock.committed_unchanged(LOCKED_M0_REL, lock.ROOT)
         stem = "eval_fold19"
         if (REPORTS / f"{stem}.md").exists():
             if not a.overwrite_post_hoc:
@@ -468,6 +535,7 @@ def main(argv=None) -> None:
             meta["posthoc"] = True
             stem = f"eval_fold19_posthoc_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
 
+    meta["stem"] = stem
     L, lock_notes = load_locked(models, a.fold)
     print(f"[fold {a.fold}] model: {', '.join(models)} | parameter terkunci: {lock_notes}")
     wide, info, minfo = load_wide(models, a.fold)
@@ -500,7 +568,8 @@ def main(argv=None) -> None:
         if m in BINARY_MODELS:
             print(f"  {m}: sens {ci_str(b, m, 'Sens@rule-out')} | spes {ci_str(b, m, 'Spes@rule-out')}")
         else:
-            print(f"  {m}: AUROC {ci_str(b, m, 'AUROC')} | AUPRC {ci_str(b, m, 'AUPRC')}")
+            print(f"  {m}: AUROC {ci_str(b, m, 'AUROC')} | AUPRC {ci_str(b, m, 'AUPRC')}"
+                  + (f" | sens@spes setara M0 {ci_str(b, m, 'Sens@spes-M0')}" if res.get("m0_target") is not None else ""))
     if PRIMARY in pairs:
         print(f"  UTAMA M5 - M4: ΔAUROC {ci_str(b, 'M5 - M4', 'AUROC')}")
     print(f"\nTersimpan: reports/{stem}.md dan reports/{stem}_*.csv")
